@@ -1,0 +1,27 @@
+{
+  "build": {
+    "core": "stm32",
+    "cpu": "cortex-m4",
+    "extra_flags": "-DHC32F46x -DHC32F460 -D__HC32F460__ -D__FPU_PRESENT=1",
+    "f_cpu": "168000000L",
+    "mcu": "hc32f460",
+    "variant": "hc32f460"
+  },
+  "debug": {
+    "jlink_device": "HC32F460",
+    "openocd_target": "cortex_m"
+  },
+  "frameworks": [],
+  "name": "Generic HC32F460",
+  "upload": {
+    "maximum_ram_size": 229376,
+    "maximum_size": 524288,
+    "protocol": "custom",
+    "protocols": [
+      "custom"
+    ]
+  },
+  "url": "https://www.xhsc.com.cn/",
+  "vendor": "HDSC"
+}
+

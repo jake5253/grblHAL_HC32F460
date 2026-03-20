@@ -1,0 +1,60 @@
+{
+  "caps": {
+    "axes": 3,
+    "uart": 1,
+    "spindle_pwm": 1,
+    "spindle_dir": 1,
+    "eeprom": 1,
+    "probe": 1,
+    "serial_ports": 1,
+    "pio_board": "genericHC32F460",
+    "ldscript": "ldscripts/hc32f46x_flash.ld"
+  },
+  "boards": [
+    {
+      "name": "Voxelab Aquila Main Board V1.0.2",
+      "symbol": "BOARD_VOXELAB_AQUILA_V102",
+      "MAP": "boards/voxelab_aquila_v1_0_2_map.h",
+      "caps": {
+        "axes": 3,
+        "uart": 1,
+        "spindle_pwm": 1,
+        "spindle_dir": 0,
+        "eeprom": 1,
+        "probe": 1,
+        "pio_board": "genericHC32F460",
+        "ldscript": "ldscripts/hc32f46x_flash.ld"
+      }
+    },
+    {
+      "name": "HC32F460 MyMachine",
+      "symbol": "BOARD_MY_MACHINE",
+      "MAP": "boards/my_machine_map.h",
+      "caps": {
+        "axes": 3,
+        "uart": 1,
+        "spindle_pwm": 1,
+        "spindle_dir": 0,
+        "eeprom": 1,
+        "probe": 1,
+        "pio_board": "genericHC32F460",
+        "ldscript": "ldscripts/hc32f46x_flash.ld"
+      }
+    },
+    {
+      "name": "HC32F460 Generic",
+      "symbol": "BOARD_GENERIC_HC32F460",
+      "MAP": "boards/generic_map.h",
+      "caps": {
+        "axes": 3,
+        "uart": 1,
+        "spindle_pwm": 1,
+        "spindle_dir": 1,
+        "eeprom": 1,
+        "probe": 1,
+        "pio_board": "genericHC32F460",
+        "ldscript": "ldscripts/hc32f46x_flash.ld"
+      }
+    }
+  ]
+}

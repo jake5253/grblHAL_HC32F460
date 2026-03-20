@@ -1,0 +1,5 @@
+build/
+.pio/
+*.code-workspace
+platformio.local.ini
+notes/
