@@ -3,3 +3,6 @@ build/
 *.code-workspace
 platformio.local.ini
 notes/
+scripts/hardware_test_runner.py
+scripts/__pycache__/
+test_logs/

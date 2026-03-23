@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import glob
 import os
 import re
 import select
@@ -179,22 +180,57 @@ def detect_firmware_artifacts() -> str:
     return ", ".join(found) if found else "no build artifacts found"
 
 
+def detect_build_target() -> str:
+    if os.environ.get("PIOENV"):
+        return os.environ["PIOENV"]
+    return "hc32f460_voxelab_aquila_v102"
+
+
+def detect_build_flags() -> str:
+    flags = os.environ.get("PLATFORMIO_BUILD_FLAGS", "").strip()
+    return flags or "default"
+
+
 def detect_default_serial_console(build_flags: str) -> str:
     if "USE_USART=1" in build_flags.replace(" ", ""):
         return "alternate USART1"
     return "default USART2"
 
 
+def detect_serial_port_candidate() -> Optional[str]:
+    if os.environ.get("GRBL_SERIAL_PORT"):
+        return os.environ["GRBL_SERIAL_PORT"]
+
+    candidates = []
+
+    for pattern in (
+        "/dev/serial/by-id/*",
+        "/dev/ttyUSB*",
+        "/dev/ttyACM*",
+        "/dev/tty.usbserial*",
+        "/dev/cu.usbserial*",
+        "/tmp/ttyESP0",
+    ):
+        candidates.extend(sorted(glob.glob(pattern)))
+
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+
+    return None
+
+
 def detect_defaults(args: argparse.Namespace) -> dict:
-    build_flags = args.build_flags or os.environ.get("PLATFORMIO_BUILD_FLAGS", "")
+    build_flags = args.build_flags or detect_build_flags()
     git_state = detect_git_state()
     defaults = {
         "Date": now_str(),
         "Firmware commit / tree state": git_state.describe(),
-        "Build target": args.build_target or "hc32f460_voxelab_aquila_v102",
+        "Build target": args.build_target or detect_build_target(),
         "Build flags": build_flags,
         "Flash method": args.flash_method or "pyocd / platformio",
         "Serial console path": args.serial_console or detect_default_serial_console(build_flags),
+        "Detected serial port": args.port or detect_serial_port_candidate() or "not detected",
         "Board wiring notes": "",
         "PSU voltage": "24V",
         "Motors connected": "yes",
@@ -306,11 +342,12 @@ class HardwareTestRunner:
         print("HC32F460 Hardware Test Runner\n")
         self.session_info = {
             "Date": self.defaults["Date"],
-            "Firmware commit / tree state": prompt("Firmware commit / tree state", self.defaults["Firmware commit / tree state"]),
-            "Build target": prompt("Build target", self.defaults["Build target"]),
-            "Build flags": prompt("Build flags", self.defaults["Build flags"]),
-            "Flash method": prompt("Flash method", self.defaults["Flash method"]),
-            "Serial console path": prompt("Serial console path", self.defaults["Serial console path"]),
+            "Firmware commit / tree state": self.defaults["Firmware commit / tree state"],
+            "Build target": self.defaults["Build target"],
+            "Build flags": self.defaults["Build flags"],
+            "Flash method": self.defaults["Flash method"],
+            "Serial console path": self.defaults["Serial console path"],
+            "Detected serial port": self.defaults["Detected serial port"],
             "Board wiring notes": prompt("Board wiring notes", self.defaults["Board wiring notes"]),
             "PSU voltage": prompt("PSU voltage", self.defaults["PSU voltage"]),
             "Motors connected": prompt("Motors connected", self.defaults["Motors connected"]),
@@ -324,15 +361,20 @@ class HardwareTestRunner:
         }
 
     def open_serial(self) -> None:
-        port = self.args.port or prompt("Serial port", "/tmp/ttyESP0")
+        port = self.args.port or detect_serial_port_candidate()
+        if port is None:
+            port = prompt("Serial port", "/dev/ttyUSB0")
         baud = self.args.baud
         print(f"\nOpening serial port {port} @ {baud}...")
         self.serial_session = SerialSession(port, baud)
+        self.session_info["Detected serial port"] = port
         banner = self.serial_session.read_available(duration=1.2)
         self.steps.append(StepLog("Initial banner capture", "INFO", responses=[banner]))
         if banner:
             print("\nStartup banner:")
             print(banner)
+        else:
+            print("\nNo startup banner was captured on connect.")
 
     def validate_firmware_state(self) -> bool:
         assert self.serial_session is not None
@@ -395,9 +437,31 @@ class HardwareTestRunner:
         print(f"\n{title}")
         for command in commands:
             print(f"  -> {command}")
-            responses.append(self.serial_session.send_line(command, settle=settle))
+            response = self.serial_session.send_line(command, settle=settle)
+            responses.append(response)
+            print(textwrap.indent(response or "<no response>", prefix="     "))
         result = choose_result()
         notes = prompt("Notes", "")
+        self.steps.append(StepLog(title, result, notes, commands, responses))
+
+    def auto_serial_probe_step(self, title: str, commands: List[str], settle: float = 0.7) -> None:
+        assert self.serial_session is not None
+        responses: List[str] = []
+        ok = True
+
+        print(f"\n{title}")
+        for command in commands:
+            print(f"  -> {command}")
+            response = self.serial_session.send_line(command, settle=settle)
+            responses.append(response)
+            print(textwrap.indent(response or "<no response>", prefix="     "))
+            if not response.strip():
+                ok = False
+
+        result = "PASS" if ok else "FAIL"
+        default_notes = "" if ok else "One or more commands returned no response."
+        print(f"Auto result: {result}")
+        notes = prompt("Notes", default_notes)
         self.steps.append(StepLog(title, result, notes, commands, responses))
 
     def interactive_step(self, title: str, guidance: str) -> None:
@@ -408,7 +472,7 @@ class HardwareTestRunner:
         self.steps.append(StepLog(title, result, notes))
 
     def step_boot_console(self) -> None:
-        self.serial_command_step(
+        self.auto_serial_probe_step(
             "Boot And Console",
             ["$I", "$$", "?", "$pins"],
             settle=0.9,
