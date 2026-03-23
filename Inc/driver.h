@@ -40,14 +40,12 @@
 
 #include "grbl/driver_opts2.h"
 
-#ifndef SPINDLE_HAS_DIRECTION
-#define SPINDLE_HAS_DIRECTION   0
-#endif
-
 #define STEPPER_IRQ             Int010_IRQn
 #define STEPPER_PULSE_IRQ       Int011_IRQn
-#define LIMIT_IRQ               Int012_IRQn
-#define CONTROL_IRQ             Int013_IRQn
+#define LIMIT_X_IRQ             Int012_IRQn
+#define LIMIT_Y_IRQ             Int013_IRQn
+#define LIMIT_Z_IRQ             Int014_IRQn
+#define CONTROL_IRQ             Int015_IRQn
 
 #define STEPPER_TIMER           M4_TMRA6
 #define STEPPER_TIMER_CLOCK     PWC_FCG2_PERIPH_TIMA6
@@ -62,6 +60,22 @@
 #define SPINDLE_PWM_DIVIDER     TimeraPclkDiv8
 #define SPINDLE_PWM_DIV         8u
 #define SPINDLE_PWM_CLOCK_HZ    (SystemCoreClock / SPINDLE_PWM_DIV)
+
+#ifndef SPINDLE0_HAS_ENABLE
+#define SPINDLE0_HAS_ENABLE     0
+#endif
+
+#ifndef SPINDLE0_HAS_DIRECTION
+#define SPINDLE0_HAS_DIRECTION  0
+#endif
+
+#ifndef SPINDLE1_HAS_ENABLE
+#define SPINDLE1_HAS_ENABLE     0
+#endif
+
+#ifndef SPINDLE1_HAS_DIRECTION
+#define SPINDLE1_HAS_DIRECTION  0
+#endif
 
 #define STEP_PULSE_LENGTH_US    5u
 
@@ -117,6 +131,21 @@ static inline void hc32_gpio_config_input (en_port_t port, uint16_t pin, bool pu
     cfg.enPinOType = Pin_OType_Cmos;
     cfg.enPullUp = pullup ? Enable : Disable;
     cfg.enExInt = Disable;
+    cfg.enPinSubFunc = Disable;
+
+    PORT_SetFunc(port, pin, Func_Gpio, Disable);
+    PORT_Init(port, pin, &cfg);
+}
+
+static inline void hc32_gpio_config_input_exint (en_port_t port, uint16_t pin, bool pullup)
+{
+    stc_port_init_t cfg = {0};
+
+    cfg.enPinMode = Pin_Mode_In;
+    cfg.enPinDrv = Pin_Drv_L;
+    cfg.enPinOType = Pin_OType_Cmos;
+    cfg.enPullUp = pullup ? Enable : Disable;
+    cfg.enExInt = Enable;
     cfg.enPinSubFunc = Disable;
 
     PORT_SetFunc(port, pin, Func_Gpio, Disable);

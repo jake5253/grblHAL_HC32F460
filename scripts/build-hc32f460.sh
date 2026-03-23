@@ -23,6 +23,8 @@ CFLAGS=(
   -DHC32F460
   -D__HC32F460__
   -D__FPU_PRESENT=1
+  -include "$ROOT/Inc/my_machine.h"
+  -DN_SPINDLE=2
   -DADAPTIVE_MULTI_AXIS_STEP_SMOOTHING=0
   -I"$ROOT"
   -I"$ROOT/Inc"

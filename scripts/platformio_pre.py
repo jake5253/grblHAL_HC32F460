@@ -1,4 +1,5 @@
 import os
+import subprocess
 
 from SCons.Script import DefaultEnvironment
 
@@ -21,9 +22,50 @@ sdk_sources = [
     "hc32f46x_usart.c",
 ]
 
+
+def run_command(args, cwd):
+    try:
+        result = subprocess.run(
+            args,
+            cwd=cwd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return None
+
+    return result.stdout.strip()
+
+
+def stringify_macro(value):
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def detect_build_info(project_dir):
+    branch = run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"], project_dir) or "unknown"
+    commit = run_command(["git", "rev-parse", "--short", "HEAD"], project_dir) or "unknown"
+    status = run_command(["git", "status", "--short"], project_dir) or ""
+    dirty = "dirty" if status else "clean"
+    base = "FFP0173_Aquila_Main_Board_V1.0.2"
+
+    return f"{base}|git={commit}|branch={branch}|tree={dirty}"
+
+
+generated_build_info = detect_build_info(project_dir)
+generated_header = os.path.join(build_dir, "generated_build_info.h")
+
+os.makedirs(build_dir, exist_ok=True)
+
+with open(generated_header, "w", encoding="ascii") as header:
+    header.write("#pragma once\n")
+    header.write(f"#define BUILD_INFO {stringify_macro(generated_build_info)}\n")
+
 env.Append(
     ASFLAGS=["-mcpu=cortex-m4", "-mthumb"],
-    CCFLAGS=["-mcpu=cortex-m4", "-mthumb"],
+    CCFLAGS=["-mcpu=cortex-m4", "-mthumb", "-include", generated_header],
     LINKFLAGS=["-mcpu=cortex-m4", "-mthumb", "-nostartfiles", "-Wl,--gc-sections"],
     LIBS=["m"],
 )

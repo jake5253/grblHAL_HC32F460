@@ -153,7 +153,10 @@ static void serialRxIRQ (void)
 {
     uint8_t data = (uint8_t)USART_RecData(SERIAL_PORT_USART);
 
-    if(data == CMD_RESET || data == CMD_STOP || data == CMD_STATUS_REPORT || data == CMD_CYCLE_START || data == CMD_FEED_HOLD ||
+    if(data == CMD_RESET || data == CMD_STOP ||
+       data == CMD_STATUS_REPORT || data == CMD_STATUS_REPORT_LEGACY ||
+       data == CMD_CYCLE_START || data == CMD_CYCLE_START_LEGACY ||
+       data == CMD_FEED_HOLD || data == CMD_FEED_HOLD_LEGACY ||
        (data >= 0x80u && data <= 0xBFu)) {
         enqueue_realtime_command(data);
         return;
