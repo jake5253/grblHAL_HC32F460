@@ -33,9 +33,9 @@
 // Board-default machine profile for the stock Aquila kinematics.
 // These values become active after reflashing and resetting settings with $RST=*.
 #ifdef BOARD_VOXELAB_AQUILA_V102
-#define DEFAULT_X_STEPS_PER_MM  1600.0f
-#define DEFAULT_Y_STEPS_PER_MM  1600.0f
-#define DEFAULT_Z_STEPS_PER_MM  1600.0f
+#define DEFAULT_X_STEPS_PER_MM  800.0f
+#define DEFAULT_Y_STEPS_PER_MM  800.0f
+#define DEFAULT_Z_STEPS_PER_MM  800.0f
 
 #define DEFAULT_X_MAX_RATE      1200.0f
 #define DEFAULT_Y_MAX_RATE      1200.0f

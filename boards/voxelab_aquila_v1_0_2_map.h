@@ -120,15 +120,14 @@
 #define SPINDLE_ENABLE_PIN      SPINDLE0_PWM_PIN
 
 // Secondary PWM spindle / laser on the BLTouch connector.
+// Use PB1 as the sole laser control signal; main laser power is handled externally.
 #define SPINDLE1_PWM_PORT       PortB
 #define SPINDLE1_PWM_PIN        Pin01
 #define SPINDLE1_PWM_FUNC       Func_Tima0
 #define SPINDLE1_PWM_TIMER      M4_TMRA1
 #define SPINDLE1_PWM_CLOCK      PWC_FCG2_PERIPH_TIMA1
 #define SPINDLE1_PWM_CHANNEL    TimeraCh7
-#define SPINDLE1_ENABLE_PORT    PortB
-#define SPINDLE1_ENABLE_PIN     Pin00
-#define SPINDLE1_HAS_ENABLE     1
+#define SPINDLE1_HAS_ENABLE     0
 #define SPINDLE1_HAS_DIRECTION  0
 
 // Default functional assignment: flood coolant on the fan pin header pair.
@@ -151,7 +150,7 @@
   Expansion / future-use notes for this board:
 
   Easily accessible external-use pins:
-  - BLTouch IN: PB0 (used here as secondary spindle / laser enable)
+  - BLTouch IN: PB0 (free for future use)
   - Filament sensor / probe candidate: PA4 (10k pull-up on board)
   - LCD connector UART / spare GPIO: PC0 / PC1
   - FAN_PIN_HEADER: PA0 (two linked 1x2 headers)
