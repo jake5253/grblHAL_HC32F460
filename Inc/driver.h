@@ -15,6 +15,7 @@
 #endif
 
 #include "hc32_ddl.h"
+#include "hc32f46x_adc.h"
 #include "hc32f46x_clk.h"
 #include "hc32f46x_efm.h"
 #include "hc32f46x_exint_nmi_swi.h"
@@ -81,7 +82,7 @@
 
 #define HC32_FLASH_BASE         0x00000000u
 #define HC32_FLASH_APP_START    0x0000C000u
-#define HC32_FLASH_NVS_BASE     0x0007E000u
+#define HC32_FLASH_NVS_BASE     0x0007C000u
 #define HC32_FLASH_NVS_SIZE     0x00002000u
 
 static inline uint32_t pinmask_to_pinno (uint16_t pinmask)
@@ -106,6 +107,26 @@ static inline bool hc32_gpio_read (en_port_t port, uint16_t pin)
 {
     return PORT_GetBit(port, pin) == Set;
 }
+
+bool flash_nvs_is_valid (void);
+
+typedef struct {
+    bool erase_ok;
+    bool erase_blank;
+    bool program_ok;
+    uint32_t fpmtsw_before_erase;
+    uint32_t fpmtew_before_erase;
+    uint32_t status_after_erase;
+    uint32_t status_after_program;
+    uint32_t expected[4];
+    uint32_t readback[4];
+} flash_selftest_info_t;
+
+bool flash_selftest_run (flash_selftest_info_t *info);
+bool flash_selftest_erase_only (flash_selftest_info_t *info);
+bool flash_selftest_program_only (flash_selftest_info_t *info);
+void flash_selftest_dump (uint32_t *words, uint32_t count);
+void flash_selftest_breakpoint (void);
 
 static inline void hc32_gpio_config_output (en_port_t port, uint16_t pin)
 {
@@ -160,3 +181,4 @@ typedef struct {
 } hc32_irq_registration_t;
 
 bool hc32_irq_register (hc32_irq_registration_t registration);
+void hc32_ioports_init (void);

@@ -1,5 +1,5 @@
 /*
-  flash.c - HC32F460 external EEPROM-backed NVS
+  flash.c - HC32F460 NVS backend helpers
 
   Part of grblHAL
 */
@@ -7,6 +7,25 @@
 #include "driver.h"
 #include "grbl/hal.h"
 #include "grbl/crc.h"
+
+#define RAM_FUNC_NOINLINE __RAM_FUNC __attribute__((noinline))
+#define FLASH_WP_DISABLED_START 0u
+#define FLASH_WP_DISABLED_END   0u
+#define EFM_FAPRT_REG  (*(volatile uint32_t *)0x40010400UL)
+#define EFM_FSTP_REG   (*(volatile uint32_t *)0x40010404UL)
+#define EFM_FRMC_REG   (*(volatile uint32_t *)0x40010408UL)
+#define EFM_FWMC_REG   (*(volatile uint32_t *)0x4001040CUL)
+#define EFM_FSR_REG    (*(volatile uint32_t *)0x40010410UL)
+#define EFM_FSCLR_REG  (*(volatile uint32_t *)0x40010414UL)
+#define EFM_FSWP_REG   (*(volatile uint32_t *)0x4001041CUL)
+#define EFM_FPMTSW_REG (*(volatile uint32_t *)0x40010420UL)
+#define EFM_FPMTEW_REG (*(volatile uint32_t *)0x40010424UL)
+#define EFM_FSTP_ENABLE  0u
+#define EFM_FSTP_DISABLE 1u
+#define EFM_FRMC_FLWT_MASK  (0x0FUL << 4)
+#define EFM_FRMC_CACHE_MASK (1UL << 16)
+
+#if EEPROM_ENABLE
 #define EEPROM_DEVICE_ADDRESS  0xA0u
 #define EEPROM_PAGE_SIZE       16u
 #define EEPROM_SIZE_BYTES      2048u
@@ -350,3 +369,350 @@ bool nvsWrite (uint32_t dest, uint8_t *source, uint32_t size, bool with_checksum
 
     return eeprom_write((uint16_t)dest, buffer, (uint16_t)total);
 }
+
+#else
+// ---------------------------------------------------------------------------
+// Flash NVS — HC32F460
+// Erase/program sequences match the on-chip bootloader exactly:
+//   - unlock → clear stop → wait RDY → clear flags → disable cache
+//   - PEMODE and PEMOD written as separate RMW bitfield writes
+//   - PEMOD=4 for sector erase, PEMOD=1 for single-word program
+//   - PEMOD=0 / PEMODE=0 torn down after every operation
+//   - no FPMTSW / FPMTEW / FSWP interaction
+//   - no BUSHLDCTL
+//   - re-stop and re-lock after every operation
+// ---------------------------------------------------------------------------
+
+#define FLASH_OP_TIMEOUT    0x1000u
+
+// FSR bits
+#define FSR_RDY         (1u << 8)
+#define FSR_EOP         (1u << 4)
+#define FSR_ERR_MASK    (0x0000002Fu)   // WRPERR|PEPRTERR|PGSZERR|PGMISMTCH|RWERR
+
+// FRMC bits
+#define FRMC_CACHE_BIT  (1u << 16)
+#define FRMC_FLWT_MASK  (0x000000F0u)
+#define FRMC_LATENCY_4  (4u)
+
+// FWMC bits
+#define FWMC_PEMODE_BIT (1u << 0)
+#define FWMC_PEMOD_MASK (0x07u << 4)
+#define FWMC_PEMOD_SINGLE_PROGRAM  (1u << 4)
+#define FWMC_PEMOD_SECTOR_ERASE    (4u << 4)
+
+// ---------------------------------------------------------------------------
+// Internal RAM helpers
+// ---------------------------------------------------------------------------
+
+static RAM_FUNC_NOINLINE bool efm_wait_rdy (void)
+{
+    uint32_t timeout = FLASH_OP_TIMEOUT;
+
+    while ((EFM_FSR_REG & FSR_RDY) == 0u) {
+        if (timeout-- == 0u)
+            return false;
+    }
+    return true;
+}
+
+// Unlock EFM registers — two-word sequence, exactly as bootloader sub_1804
+static RAM_FUNC_NOINLINE void efm_unlock (void)
+{
+    EFM_FAPRT_REG = 0x0123u;
+    EFM_FAPRT_REG = 0x3210u;
+}
+
+// Lock EFM registers
+static RAM_FUNC_NOINLINE void efm_lock (void)
+{
+    EFM_FAPRT_REG = 0x3210u;
+    EFM_FAPRT_REG = 0x3210u;
+}
+
+// Clear Flash stop mode (enable operations) — bootloader sub_1660 with arg=1
+static RAM_FUNC_NOINLINE void efm_cmd_enable (void)
+{
+    EFM_FSTP_REG = EFM_FSTP_ENABLE;
+}
+
+// ---------------------------------------------------------------------------
+// Sector erase — mirrors bootloader sub_16e8 exactly
+// addr must be the base address of the 8 KB sector (aligned to 0x2000)
+// ---------------------------------------------------------------------------
+static RAM_FUNC_NOINLINE bool efm_sector_erase (uint32_t addr)
+{
+    // Save and reconfigure FRMC: set latency=4, disable cache
+    uint32_t frmc_saved = EFM_FRMC_REG;
+    uint32_t frmc = frmc_saved & ~(FRMC_FLWT_MASK | FRMC_CACHE_BIT);
+    frmc |= (FRMC_LATENCY_4 << 4);
+    EFM_FRMC_REG = frmc;
+
+    // Clear all sticky flags
+    EFM_FSCLR_REG = 0x3Fu;
+
+    // Enable P/E mode, then set erase mode — separate writes, as bootloader does
+    EFM_FWMC_REG = (EFM_FWMC_REG & ~FWMC_PEMODE_BIT) | FWMC_PEMODE_BIT;
+    EFM_FWMC_REG = (EFM_FWMC_REG & ~FWMC_PEMOD_MASK) | FWMC_PEMOD_SECTOR_ERASE;
+
+    // Trigger erase — write any value to any aligned address in the sector
+    *(volatile uint32_t *)addr = 0x12345678u;
+
+    // Wait for completion
+    bool ok = efm_wait_rdy();
+
+    // Check for errors
+    if (ok && (EFM_FSR_REG & FSR_ERR_MASK) != 0u)
+        ok = false;
+
+    // Tear down — clear EOP, then PEMOD=0, PEMODE=0, exactly as bootloader
+    EFM_FSCLR_REG = FSR_EOP;
+    EFM_FWMC_REG = (EFM_FWMC_REG & ~FWMC_PEMOD_MASK);
+    EFM_FWMC_REG = (EFM_FWMC_REG & ~FWMC_PEMODE_BIT);
+
+    // Restore FRMC
+    EFM_FRMC_REG = frmc_saved;
+
+    return ok;
+}
+
+// ---------------------------------------------------------------------------
+// Single word program — mirrors bootloader sub_1788 exactly
+// addr must be 4-byte aligned
+// ---------------------------------------------------------------------------
+static RAM_FUNC_NOINLINE bool efm_program_word (uint32_t addr, uint32_t value)
+{
+    // Save and reconfigure FRMC: set latency=4, disable cache
+    uint32_t frmc_saved = EFM_FRMC_REG;
+    uint32_t frmc = frmc_saved & ~(FRMC_FLWT_MASK | FRMC_CACHE_BIT);
+    frmc |= (FRMC_LATENCY_4 << 4);
+    EFM_FRMC_REG = frmc;
+
+    // Clear all sticky flags
+    EFM_FSCLR_REG = 0x3Fu;
+
+    // Enable P/E mode, then set single-program mode — separate writes, as bootloader
+    EFM_FWMC_REG = (EFM_FWMC_REG & ~FWMC_PEMODE_BIT) | FWMC_PEMODE_BIT;
+    EFM_FWMC_REG = (EFM_FWMC_REG & ~FWMC_PEMOD_MASK) | FWMC_PEMOD_SINGLE_PROGRAM;
+
+    // Write the word
+    *(volatile uint32_t *)addr = value;
+
+    // Wait for completion
+    bool ok = efm_wait_rdy();
+
+    // Check error flags
+    if (ok && (EFM_FSR_REG & FSR_ERR_MASK) != 0u)
+        ok = false;
+
+    // Tear down — clear EOP, then PEMOD=0, PEMODE=0
+    EFM_FSCLR_REG = FSR_EOP;
+    EFM_FWMC_REG = (EFM_FWMC_REG & ~FWMC_PEMOD_MASK);
+    EFM_FWMC_REG = (EFM_FWMC_REG & ~FWMC_PEMODE_BIT);
+
+    // Restore FRMC
+    EFM_FRMC_REG = frmc_saved;
+
+    return ok;
+}
+
+// ---------------------------------------------------------------------------
+// Session wrapper — unlock/enable once around a whole erase + rewrite cycle.
+// This matches the bootloader flow more closely than reopening flash for every
+// single programmed word.
+// ---------------------------------------------------------------------------
+static RAM_FUNC_NOINLINE bool efm_begin_session (uint32_t *primask)
+{
+    *primask = __get_PRIMASK();
+
+    __disable_irq();
+    __DSB();
+    __ISB();
+
+    efm_unlock();
+    efm_cmd_enable();
+
+    return efm_wait_rdy();
+}
+
+static RAM_FUNC_NOINLINE void efm_end_session (uint32_t primask)
+{
+    efm_lock();        // lock registers first — doesn't touch FSTP
+
+    __DSB();
+    __ISB();
+
+    if (primask == 0u)
+        __enable_irq();
+
+    // DO NOT call efm_cmd_disable() here.
+    // FSTP is the Flash stop bit. Setting it while about to return
+    // into Flash execution will stop the bus before the first fetch.
+    // The bootloader's top-level wrappers (sub_1818/sub_1842) do NOT
+    // re-engage stop mode after programming — leave it cleared.
+}
+
+// ---------------------------------------------------------------------------
+// NVS size helper
+// ---------------------------------------------------------------------------
+static uint32_t flash_nvs_size (void)
+{
+    uint32_t size = ((hal.nvs.size - 1u) | 0x03u) + 1u;
+
+    return size <= HC32_FLASH_NVS_SIZE ? size : 0u;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+// Erase the NVS sector then write source data back word by word.
+static bool flash_nvs_store (uint8_t const *source)
+{
+    uint32_t size = flash_nvs_size();
+    uint32_t primask;
+    bool ok = false;
+
+    if (size == 0u)
+        return false;
+
+    if(!efm_begin_session(&primask))
+        return false;
+
+    do {
+        if(!efm_sector_erase(HC32_FLASH_NVS_BASE))
+            break;
+
+        ok = true;
+
+        // Program one word at a time — pad the last partial word with 0xFF
+        for(uint32_t offset = 0u; offset < size; offset += 4u) {
+            uint32_t word = 0xFFFFFFFFu;
+            uint32_t chunk = size - offset;
+
+            if(chunk > 4u)
+                chunk = 4u;
+
+            for(uint32_t b = 0u; b < chunk; b++)
+                ((uint8_t *)&word)[b] = source[offset + b];
+
+            if(!efm_program_word(HC32_FLASH_NVS_BASE + offset, word)) {
+                ok = false;
+                break;
+            }
+        }
+    } while(false);
+
+    efm_end_session(primask);
+
+    return ok;
+}
+
+bool memcpy_from_flash (uint8_t *dest)
+{
+    uint32_t size = flash_nvs_size();
+
+    if (size == 0u)
+        return false;
+
+    memcpy(dest, (void const *)HC32_FLASH_NVS_BASE, size);
+    return true;
+}
+
+bool memcpy_to_flash (uint8_t *source)
+{
+    return flash_nvs_store(source);
+}
+
+uint8_t nvsGetByte (uint32_t addr)
+{
+    uint32_t size = flash_nvs_size();
+
+    return addr < size ? *((uint8_t const *)(HC32_FLASH_NVS_BASE + addr)) : 0xFFu;
+}
+
+void nvsPutByte (uint32_t addr, uint8_t new_value)
+{
+    // Byte-granular writes are not supported on Flash without a full erase cycle.
+    // Use nvsWrite() to update a region atomically.
+    (void)addr;
+    (void)new_value;
+}
+
+bool flash_nvs_is_valid (void)
+{
+    uint32_t size = flash_nvs_size();
+    settings_t stored;
+    uint16_t stored_checksum;
+    uint16_t computed_checksum;
+
+    if (size < (NVS_ADDR_GLOBAL + sizeof(settings_t) + NVS_CRC_BYTES))
+        return false;
+
+    if (*((uint8_t const *)HC32_FLASH_NVS_BASE) != SETTINGS_VERSION)
+        return false;
+
+    memcpy(&stored,
+           (void const *)(HC32_FLASH_NVS_BASE + NVS_ADDR_GLOBAL),
+           sizeof(settings_t));
+    memcpy(&stored_checksum,
+           (void const *)(HC32_FLASH_NVS_BASE + NVS_ADDR_GLOBAL + sizeof(settings_t)),
+           sizeof(stored_checksum));
+
+    computed_checksum = calc_checksum((uint8_t const *)&stored, sizeof(settings_t));
+
+    return stored.version.id == SETTINGS_VERSION && stored_checksum == computed_checksum;
+}
+
+bool nvsRead (uint8_t *dest, uint32_t source, uint32_t size, bool with_checksum)
+{
+    uint32_t total = size + (with_checksum ? NVS_CRC_BYTES : 0u);
+
+    if ((source + total) > hal.nvs.size)
+        return false;
+
+    memcpy(dest, (void const *)(HC32_FLASH_NVS_BASE + source), size);
+
+    if (!with_checksum)
+        return true;
+
+#if NVS_CRC_BYTES > 1
+    uint16_t stored;
+    memcpy(&stored,
+           (void const *)(HC32_FLASH_NVS_BASE + source + size),
+           sizeof(stored));
+    return calc_checksum(dest, size) == stored;
+#else
+    return calc_checksum(dest, size) ==
+           *((uint8_t const *)(HC32_FLASH_NVS_BASE + source + size));
+#endif
+}
+
+bool nvsWrite (uint32_t dest, uint8_t *source, uint32_t size, bool with_checksum)
+{
+    uint32_t total    = size + (with_checksum ? NVS_CRC_BYTES : 0u);
+    uint32_t nvs_size = flash_nvs_size();
+
+    if (nvs_size == 0u || (dest + total) > nvs_size)
+        return false;
+
+    // Shadow the entire NVS sector in a stack buffer, patch the target region,
+    // then erase-and-rewrite the whole sector.
+    uint8_t buffer[nvs_size];
+
+    memcpy(buffer, (void const *)HC32_FLASH_NVS_BASE, nvs_size);
+    memcpy(&buffer[dest], source, size);
+
+    if (with_checksum) {
+#if NVS_CRC_BYTES > 1
+        uint16_t checksum = calc_checksum(source, size);
+        memcpy(&buffer[dest + size], &checksum, sizeof(checksum));
+#else
+        buffer[dest + size] = calc_checksum(source, size);
+#endif
+    }
+
+    return flash_nvs_store(buffer);
+}
+
+#endif

@@ -52,7 +52,7 @@
 /* Use contiguous memory regions for simple. */
 MEMORY
 {
-    FLASH       (rx): ORIGIN = 0x0000C000, LENGTH = 0x00074000
+    FLASH       (rx): ORIGIN = 0x0000C000, LENGTH = 0x00072000
     OTP         (rx): ORIGIN = 0x03000C00, LENGTH = 1020
     RAMHS      (rwx): ORIGIN = 0x1FFF8000, LENGTH = 32K
     SRAM12     (rwx): ORIGIN = 0x20000000, LENGTH = 128K

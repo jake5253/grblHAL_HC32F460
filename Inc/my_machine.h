@@ -11,7 +11,9 @@
 #define BOARD_VOXELAB_AQUILA_V102
 #endif
 
+#ifndef N_AXIS
 #define N_AXIS                  3
+#endif
 #define COMPATIBILITY_LEVEL     0
 
 #ifndef BUILD_INFO_BASE
@@ -26,8 +28,62 @@
 #define USE_USART              2
 #endif
 
+#ifndef MPG_ENABLE
+#define MPG_ENABLE             0
+#endif
+
+#ifndef KEYPAD_ENABLE
+#define KEYPAD_ENABLE          0
+#endif
+
+#ifndef SPINDLE_SELECT_ENABLE
+#define SPINDLE_SELECT_ENABLE  1
+#endif
+
+#if MPG_ENABLE == 1
+#error "MPG_ENABLE=1 is not supported on HC32F460 yet. Use MPG_ENABLE=2 for UART MPG mode."
+#endif
+
+#if KEYPAD_ENABLE == 1
+#error "KEYPAD_ENABLE=1 is not supported on HC32F460 yet. I2C keypad support is not implemented."
+#endif
+
+#if MPG_ENABLE > 2
+#error "MPG_ENABLE must be 0 or 2 on HC32F460."
+#endif
+
+#if KEYPAD_ENABLE > 2
+#error "KEYPAD_ENABLE must be 0 or 2 on HC32F460."
+#endif
+
+#if MPG_ENABLE == 2 || KEYPAD_ENABLE == 2
+#ifndef AUX_UART_STREAM
+#define AUX_UART_STREAM        1
+#endif
+#endif
+
+#if MPG_ENABLE == 2
+#ifndef MPG_STREAM
+#define MPG_STREAM             AUX_UART_STREAM
+#endif
+#endif
+
+#if KEYPAD_ENABLE == 2
+#ifndef KEYPAD_STREAM
+#define KEYPAD_STREAM          AUX_UART_STREAM
+#endif
+#endif
+
+#if MPG_ENABLE == 2 && KEYPAD_ENABLE == 2 && MPG_STREAM != KEYPAD_STREAM
+#error "HC32F460 has a single auxiliary UART stream. MPG_STREAM and KEYPAD_STREAM must match."
+#endif
+
 #ifndef EEPROM_ENABLE
 #define EEPROM_ENABLE          1
+#endif
+
+#if N_AXIS > 3 && !defined(BOARD_VOXELAB_AQUILA_V102)
+#error "N_AXIS > 3 is currently only implemented for BOARD_VOXELAB_AQUILA_V102."
 #endif
 
 // Board-default machine profile for the stock Aquila kinematics.
@@ -60,6 +116,11 @@
 //     Route the main serial console to USART1 on PC0/PC1 instead of USART2 on PA9/PA15.
 // -D USE_USART=2
 //     Use the default console on USART2 on PA9/PA15.
+// -D MPG_ENABLE=2
+//     Enable UART MPG mode on the non-primary USART using real-time command switchover.
+// -D KEYPAD_ENABLE=2
+//     Enable experimental UART keypad mode on the non-primary USART.
+//     This is integrated and build-tested, but not yet validated on HC32 hardware.
 // -D PROBE_ENABLE=0
 //     Disable the dedicated probe input and build without probe support.
 // -D CONTROL_ENABLE=(CONTROL_HALT|CONTROL_FEED_HOLD|CONTROL_CYCLE_START)
@@ -67,11 +128,20 @@
 // -D ESTOP_ENABLE=1
 //     Make the halt input behave as a physical e-stop instead of a reset input.
 // -D EEPROM_ENABLE=0
-//     Disable the external EEPROM-backed NVS backend.
+//     Use internal flash-backed NVS instead of the external EEPROM on PA11/PA12.
 // -D N_SPINDLE=1
 //     Build without the secondary spindle / laser registration.
 // -D N_SPINDLE=2 -D SPINDLE1_ENABLE=SPINDLE_PWM1_NODIR
-//     Enable the secondary PWM spindle / laser on PB1 with enable on PB0.
+//     Enable the secondary PWM spindle / laser on PB1.
+// -D SPINDLE_SELECT_ENABLE=0
+//     Disable the local runtime spindle-selection addon even when multiple spindles are built.
+// -D FANS_ENABLE=1
+//     Enable the upstream fans plugin submodule. Fan mapping is handled through aux port settings.
+// -D ODOMETER_ENABLE=1
+//     Enable the upstream odometer plugin submodule. Use with EEPROM_ENABLE=1; flash-backed NVS is not suitable.
+// -D N_AXIS=4
+//     Repurpose the Aquila E-stepper socket as an optional A axis on PB4/PB3.
+//     This axis has no dedicated limit/home input and should be tuned/reset separately after flashing.
 #endif
 
 // Default probe input is enabled by the core when not overridden.

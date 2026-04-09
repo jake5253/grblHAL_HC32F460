@@ -12,3 +12,4 @@
 
 const io_stream_t *serialInit (uint32_t baud_rate);
 void serialEnableRxInterrupt (void);
+void serialRegisterStreams (void);

@@ -5,13 +5,18 @@
 */
 
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "main.h"
 #include "flash.h"
+#include "sdcard_port.h"
 #include "serial.h"
 
 #include "grbl/hal.h"
+#include "grbl/crc.h"
 #include "grbl/motor_pins.h"
+#include "grbl/nvs_buffer.h"
 #include "grbl/probe.h"
 #include "grbl/settings.h"
 #include "grbl/spindle_control.h"
@@ -28,6 +33,9 @@ static uint16_t step_delay_ticks = 0u;
 static spindle_id_t spindle0_id = -1;
 static spindle_id_t spindle1_id = -1;
 static spindle1_pwm_settings_t *spindle1_settings = NULL;
+#if !EEPROM_ENABLE
+static bool flash_nvs_bootstrap_pending = false;
+#endif
 
 typedef struct {
     spindle_pwm_t pwm;
@@ -107,6 +115,10 @@ static void spindle_set_pwm_value (hc32_spindle_t *spindle, uint_fast16_t pwm_va
 static hc32_spindle_t *get_spindle_data (spindle_ptrs_t *spindle);
 static void spindle_settings_changed (spindle1_pwm_settings_t *settings);
 
+#if SDCARD_ENABLE && defined(SD_DETECT_PIN)
+static float sd_detect_pin_value (xbar_t *pin);
+#endif
+
 static en_exti_ch_t exti_channel_from_pin (uint16_t pin)
 {
     return (en_exti_ch_t)pinmask_to_pinno(pin);
@@ -144,14 +156,28 @@ static void emit_pin (pin_info_ptr callback, void *data, uint8_t id, pin_functio
     callback(&pin, data);
 }
 
+#if SDCARD_ENABLE && defined(SD_DETECT_PIN)
+static float sd_detect_pin_value (xbar_t *pin)
+{
+    (void)pin;
+
+    return hc32_sdcard_is_inserted() ? 0.0f : 1.0f;
+}
+#endif
+
 static void enumeratePins (bool low_level, pin_info_ptr callback, void *data)
 {
     (void)low_level;
 
     uint8_t id = 0;
 
-    emit_pin(callback, data, id++, Output_TX, PinGroup_UART + (USE_USART - 1), SERIAL_PORT_TX, SERIAL_PORT_TX_PIN, USE_USART == 1 ? "USART1" : "USART2");
-    emit_pin(callback, data, id++, Input_RX, PinGroup_UART + (USE_USART - 1), SERIAL_PORT_RX, SERIAL_PORT_RX_PIN, USE_USART == 1 ? "USART1" : "USART2");
+    emit_pin(callback, data, id++, Output_TX, PinGroup_UART, SERIAL_PORT_TX, SERIAL_PORT_TX_PIN, SERIAL_PORT_LABEL);
+    emit_pin(callback, data, id++, Input_RX, PinGroup_UART, SERIAL_PORT_RX, SERIAL_PORT_RX_PIN, SERIAL_PORT_LABEL);
+
+#if MPG_ENABLE == 2 || KEYPAD_ENABLE == 2
+    emit_pin(callback, data, id++, Output_TX, PinGroup_UART + AUX_UART_STREAM, SERIAL_AUX_PORT_TX, SERIAL_AUX_PORT_TX_PIN, SERIAL_AUX_PORT_LABEL);
+    emit_pin(callback, data, id++, Input_RX, PinGroup_UART + AUX_UART_STREAM, SERIAL_AUX_PORT_RX, SERIAL_AUX_PORT_RX_PIN, SERIAL_AUX_PORT_LABEL);
+#endif
 
 #if EEPROM_ENABLE
     emit_pin(callback, data, id++, Bidirectional_I2CSDA, PinGroup_I2C, EEPROM_SDA_PORT, EEPROM_SDA_PIN, "EEPROM SDA");
@@ -169,10 +195,16 @@ static void enumeratePins (bool low_level, pin_info_ptr callback, void *data)
     emit_pin(callback, data, id++, Output_StepX, PinGroup_StepperStep, X_STEP_PORT, X_STEP_PIN, "X step");
     emit_pin(callback, data, id++, Output_StepY, PinGroup_StepperStep, Y_STEP_PORT, Y_STEP_PIN, "Y step");
     emit_pin(callback, data, id++, Output_StepZ, PinGroup_StepperStep, Z_STEP_PORT, Z_STEP_PIN, "Z step");
+#ifdef A_AXIS
+    emit_pin(callback, data, id++, Output_StepA, PinGroup_StepperStep, A_STEP_PORT, A_STEP_PIN, "A step");
+#endif
 
     emit_pin(callback, data, id++, Output_DirX, PinGroup_StepperDir, X_DIRECTION_PORT, X_DIRECTION_PIN, "X dir");
     emit_pin(callback, data, id++, Output_DirY, PinGroup_StepperDir, Y_DIRECTION_PORT, Y_DIRECTION_PIN, "Y dir");
     emit_pin(callback, data, id++, Output_DirZ, PinGroup_StepperDir, Z_DIRECTION_PORT, Z_DIRECTION_PIN, "Z dir");
+#ifdef A_AXIS
+    emit_pin(callback, data, id++, Output_DirA, PinGroup_StepperDir, A_DIRECTION_PORT, A_DIRECTION_PIN, "A dir");
+#endif
 
     emit_pin(callback, data, id++, Output_StepperEnable, PinGroup_StepperEnable, STEPPERS_ENABLE_PORT, STEPPERS_ENABLE_PIN, "Stepper enable");
 
@@ -200,6 +232,20 @@ static void enumeratePins (bool low_level, pin_info_ptr callback, void *data)
 #endif
 #ifdef CYCLE_START_PIN
     emit_pin(callback, data, id++, Input_CycleStart, PinGroup_Control, CYCLE_START_PORT, CYCLE_START_PIN, "Cycle start");
+#endif
+
+#if SDCARD_ENABLE && defined(SD_DETECT_PIN)
+    xbar_t sd_detect = {
+        .id = id++,
+        .function = Input_SdCardDetect,
+        .group = PinGroup_SdCard,
+        .port = (void *)port_name(SD_DETECT_PORT),
+        .description = "SD card detect",
+        .pin = pinmask_to_pinno(SD_DETECT_PIN),
+        .get_value = sd_detect_pin_value
+    };
+
+    callback(&sd_detect, data);
 #endif
 }
 
@@ -250,6 +296,9 @@ static void set_step_outputs (axes_signals_t step_outbits)
     hc32_gpio_write(X_STEP_PORT, X_STEP_PIN, step_outbits.x);
     hc32_gpio_write(Y_STEP_PORT, Y_STEP_PIN, step_outbits.y);
     hc32_gpio_write(Z_STEP_PORT, Z_STEP_PIN, step_outbits.z);
+#ifdef A_AXIS
+    hc32_gpio_write(A_STEP_PORT, A_STEP_PIN, step_outbits.a);
+#endif
 }
 
 static void set_dir_outputs (axes_signals_t dir_outbits)
@@ -259,6 +308,9 @@ static void set_dir_outputs (axes_signals_t dir_outbits)
     hc32_gpio_write(X_DIRECTION_PORT, X_DIRECTION_PIN, dir_outbits.x);
     hc32_gpio_write(Y_DIRECTION_PORT, Y_DIRECTION_PIN, dir_outbits.y);
     hc32_gpio_write(Z_DIRECTION_PORT, Z_DIRECTION_PIN, dir_outbits.z);
+#ifdef A_AXIS
+    hc32_gpio_write(A_DIRECTION_PORT, A_DIRECTION_PIN, dir_outbits.a);
+#endif
 }
 
 static void stepperEnable (axes_signals_t enable, bool hold)
@@ -899,19 +951,49 @@ static void driver_delay_ms (uint32_t ms, delay_callback_ptr callback)
 
 static void sync_build_info (void)
 {
-#if EEPROM_ENABLE
     stored_line_t current = {0};
     stored_line_t build_info = {0};
 
     strncpy(build_info, BUILD_INFO, sizeof(build_info) - 1);
 
-    if(hal.nvs.type == NVS_None || hal.nvs.memcpy_from_nvs == NULL || hal.nvs.memcpy_to_nvs == NULL)
+    if(hal.nvs.type == NVS_None)
+        return;
+
+    if(hal.nvs.type == NVS_Flash && hal.nvs.memcpy_from_flash && hal.nvs.memcpy_to_flash) {
+        uint8_t *image = malloc(HC32_FLASH_NVS_SIZE);
+
+        if(image == NULL)
+            return;
+
+        if(!hal.nvs.memcpy_from_flash(image) || image[0] != SETTINGS_VERSION) {
+            free(image);
+            return;
+        }
+
+        memcpy(current, &image[NVS_ADDR_BUILD_INFO], sizeof(stored_line_t));
+
+        if(strncmp(current, build_info, sizeof(stored_line_t)) != 0) {
+            uint16_t checksum = calc_checksum((uint8_t *)build_info, sizeof(stored_line_t));
+
+            memcpy(&image[NVS_ADDR_BUILD_INFO], build_info, sizeof(stored_line_t));
+            image[NVS_ADDR_BUILD_INFO + sizeof(stored_line_t)] = checksum & 0xFFu;
+#if NVS_CRC_BYTES > 1
+            image[NVS_ADDR_BUILD_INFO + sizeof(stored_line_t) + 1u] = checksum >> 8;
+#endif
+            (void)hal.nvs.memcpy_to_flash(image);
+        }
+
+        free(image);
+
+        return;
+    }
+
+    if(hal.nvs.memcpy_from_nvs == NULL || hal.nvs.memcpy_to_nvs == NULL)
         return;
 
     if(hal.nvs.memcpy_from_nvs((uint8_t *)current, NVS_ADDR_BUILD_INFO, sizeof(stored_line_t), true) != NVS_TransferResult_OK ||
        strncmp(current, build_info, sizeof(stored_line_t)) != 0)
         settings_write_build_info(build_info);
-#endif
 }
 
 static void settings_changed (settings_t *settings, settings_changed_flags_t changed)
@@ -943,13 +1025,36 @@ static void settings_changed (settings_t *settings, settings_changed_flags_t cha
 
 static bool driver_setup (settings_t *settings)
 {
+#if !EEPROM_ENABLE
+    if(flash_nvs_bootstrap_pending && hal.nvs.type == NVS_Emulated && hal.nvs.memcpy_from_nvs) {
+        nvs_io_t *physical = nvs_buffer_get_physical();
+
+        physical->type = NVS_Flash;
+        physical->size = hal.nvs.size;
+        physical->size_max = HC32_FLASH_NVS_SIZE;
+        physical->get_byte = nvsGetByte;
+        physical->put_byte = nvsPutByte;
+        physical->memcpy_from_nvs = NULL;
+        physical->memcpy_to_nvs = NULL;
+        physical->memcpy_from_flash = memcpy_from_flash;
+        physical->memcpy_to_flash = memcpy_to_flash;
+        flash_nvs_bootstrap_pending = false;
+    }
+#endif
+
     hc32_gpio_config_output(X_STEP_PORT, X_STEP_PIN);
     hc32_gpio_config_output(Y_STEP_PORT, Y_STEP_PIN);
     hc32_gpio_config_output(Z_STEP_PORT, Z_STEP_PIN);
+#ifdef A_AXIS
+    hc32_gpio_config_output(A_STEP_PORT, A_STEP_PIN);
+#endif
 
     hc32_gpio_config_output(X_DIRECTION_PORT, X_DIRECTION_PIN);
     hc32_gpio_config_output(Y_DIRECTION_PORT, Y_DIRECTION_PIN);
     hc32_gpio_config_output(Z_DIRECTION_PORT, Z_DIRECTION_PIN);
+#ifdef A_AXIS
+    hc32_gpio_config_output(A_DIRECTION_PORT, A_DIRECTION_PIN);
+#endif
     hc32_gpio_config_output(STEPPERS_ENABLE_PORT, STEPPERS_ENABLE_PIN);
 
     hc32_gpio_config_input_exint(X_LIMIT_PORT, X_LIMIT_PIN, true);
@@ -957,6 +1062,9 @@ static bool driver_setup (settings_t *settings)
     hc32_gpio_config_input_exint(Z_LIMIT_PORT, Z_LIMIT_PIN, true);
 #if PROBE_ENABLE
     hc32_gpio_config_input(PROBE_PORT, PROBE_PIN, true);
+#endif
+#if SDCARD_ENABLE && defined(SD_DETECT_PIN)
+    hc32_gpio_config_input(SD_DETECT_PORT, SD_DETECT_PIN, true);
 #endif
     configure_control_inputs(settings);
 
@@ -970,6 +1078,17 @@ static bool driver_setup (settings_t *settings)
     hc32_gpio_config_output(SPINDLE1_PWM_PORT, SPINDLE1_PWM_PIN);
 
     limits_irq_init();
+
+#if SDCARD_ENABLE && SDCARD_SDIO
+    sdcard_events_t *card = sdcard_init();
+
+    card->on_mount = hc32_sdcard_mount;
+    card->on_unmount = hc32_sdcard_unmount;
+
+    (void)hc32_sdcard_mount(NULL);
+#elif SDCARD_ENABLE
+    sdcard_init();
+#endif
 
     io_init_done = settings->version.id == SETTINGS_VERSION;
     settings_changed(settings, (settings_changed_flags_t){0});
@@ -1044,7 +1163,12 @@ bool driver_init (void)
 
     NVIC_SetPriority(SysTick_IRQn, (1u << __NVIC_PRIO_BITS) - 1u);
 
+#if EEPROM_ENABLE
     hal.info = "HC32F460";
+#else
+    hal.info = "HC32F460";
+    hal.driver_options = NULL;
+#endif
     hal.driver_version = "260319";
     hal.driver_url = GRBL_URL "/HC32F460";
     hal.board = BOARD_NAME;
@@ -1095,17 +1219,27 @@ bool driver_init (void)
     hal.nvs.memcpy_from_flash = NULL;
     hal.nvs.memcpy_to_flash = NULL;
 #else
-    hal.nvs.type = NVS_None;
-    hal.nvs.size_max = 0u;
-    hal.nvs.get_byte = NULL;
-    hal.nvs.put_byte = NULL;
-    hal.nvs.memcpy_from_nvs = NULL;
-    hal.nvs.memcpy_to_nvs = NULL;
-    hal.nvs.memcpy_from_flash = NULL;
-    hal.nvs.memcpy_to_flash = NULL;
+    if(flash_nvs_is_valid()) {
+        hal.nvs.type = NVS_Flash;
+        hal.nvs.size_max = HC32_FLASH_NVS_SIZE;
+        hal.nvs.get_byte = nvsGetByte;
+        hal.nvs.put_byte = nvsPutByte;
+        hal.nvs.memcpy_from_nvs = NULL;
+        hal.nvs.memcpy_to_nvs = NULL;
+        hal.nvs.memcpy_from_flash = memcpy_from_flash;
+        hal.nvs.memcpy_to_flash = memcpy_to_flash;
+    } else {
+        flash_nvs_bootstrap_pending = true;
+        hal.nvs.type = NVS_None;
+        hal.nvs.size_max = HC32_FLASH_NVS_SIZE;
+        hal.nvs.get_byte = NULL;
+        hal.nvs.put_byte = NULL;
+        hal.nvs.memcpy_from_nvs = NULL;
+        hal.nvs.memcpy_to_nvs = NULL;
+        hal.nvs.memcpy_from_flash = NULL;
+        hal.nvs.memcpy_to_flash = NULL;
+    }
 #endif
-
-    sync_build_info();
 
     const io_stream_t *serial = serialInit(115200);
     if(serial == NULL)
@@ -1113,6 +1247,8 @@ bool driver_init (void)
 
     memcpy(&hal.stream, serial, sizeof(io_stream_t));
     serialEnableRxInterrupt();
+    serialRegisterStreams();
+    hc32_ioports_init();
 
     hal.driver_cap.pwm_spindle = On;
 #if PROBE_ENABLE
@@ -1146,6 +1282,15 @@ bool driver_init (void)
     hal.home_cap.a.z = On;
 
     register_spindles();
+
+#include "grbl/plugins_init.h"
+
+#if MPG_ENABLE == 2
+    if(!hal.driver_cap.mpg_mode)
+        hal.driver_cap.mpg_mode = stream_mpg_register(stream_open_instance(MPG_STREAM, 115200, NULL, NULL), false, stream_mpg_check_enable);
+#endif
+
+    sync_build_info();
 
     return hal.version == HAL_VERSION;
 }

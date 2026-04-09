@@ -14,6 +14,8 @@
 // Set USE_USART=1 to use the display header PC0/PC1 pins instead.
 
 #if USE_USART == 1
+#define SERIAL_PORT             1
+#define SERIAL1_PORT            2
 #define SERIAL_PORT_USART       M4_USART1
 #define SERIAL_PORT_TX          PortC
 #define SERIAL_PORT_TX_PIN      Pin00
@@ -26,7 +28,23 @@
 #define SERIAL_PORT_EI          INT_USART1_EI
 #define SERIAL_PORT_TCI         INT_USART1_TCI
 #define SERIAL_PORT_CLOCKS      (PWC_FCG1_PERIPH_USART1)
+#define SERIAL_PORT_LABEL       "USART1"
+#define SERIAL_AUX_PORT_USART   M4_USART2
+#define SERIAL_AUX_PORT_TX      PortA
+#define SERIAL_AUX_PORT_TX_PIN  Pin09
+#define SERIAL_AUX_PORT_TX_FUNC Func_Usart2_Tx
+#define SERIAL_AUX_PORT_RX      PortA
+#define SERIAL_AUX_PORT_RX_PIN  Pin15
+#define SERIAL_AUX_PORT_RX_FUNC Func_Usart2_Rx
+#define SERIAL_AUX_PORT_RI      INT_USART2_RI
+#define SERIAL_AUX_PORT_TI      INT_USART2_TI
+#define SERIAL_AUX_PORT_EI      INT_USART2_EI
+#define SERIAL_AUX_PORT_TCI     INT_USART2_TCI
+#define SERIAL_AUX_PORT_CLOCKS  (PWC_FCG1_PERIPH_USART2)
+#define SERIAL_AUX_PORT_LABEL   "USART2"
 #elif USE_USART == 2
+#define SERIAL_PORT             2
+#define SERIAL1_PORT            1
 #define SERIAL_PORT_USART       M4_USART2
 #define SERIAL_PORT_TX          PortA
 #define SERIAL_PORT_TX_PIN      Pin09
@@ -39,6 +57,20 @@
 #define SERIAL_PORT_EI          INT_USART2_EI
 #define SERIAL_PORT_TCI         INT_USART2_TCI
 #define SERIAL_PORT_CLOCKS      (PWC_FCG1_PERIPH_USART2)
+#define SERIAL_PORT_LABEL       "USART2"
+#define SERIAL_AUX_PORT_USART   M4_USART1
+#define SERIAL_AUX_PORT_TX      PortC
+#define SERIAL_AUX_PORT_TX_PIN  Pin00
+#define SERIAL_AUX_PORT_TX_FUNC Func_Usart1_Tx
+#define SERIAL_AUX_PORT_RX      PortC
+#define SERIAL_AUX_PORT_RX_PIN  Pin01
+#define SERIAL_AUX_PORT_RX_FUNC Func_Usart1_Rx
+#define SERIAL_AUX_PORT_RI      INT_USART1_RI
+#define SERIAL_AUX_PORT_TI      INT_USART1_TI
+#define SERIAL_AUX_PORT_EI      INT_USART1_EI
+#define SERIAL_AUX_PORT_TCI     INT_USART1_TCI
+#define SERIAL_AUX_PORT_CLOCKS  (PWC_FCG1_PERIPH_USART1)
+#define SERIAL_AUX_PORT_LABEL   "USART1"
 #else
 #error "USE_USART must be set to 1 or 2"
 #endif
@@ -63,6 +95,14 @@
 #define Y_DIRECTION_PIN         Pin07
 #define Z_DIRECTION_PORT        PortB
 #define Z_DIRECTION_PIN         Pin05
+
+#if N_AXIS > 3
+#define M3_AVAILABLE            1
+#define M3_STEP_PORT            PortB
+#define M3_STEP_PIN             Pin04
+#define M3_DIRECTION_PORT       PortB
+#define M3_DIRECTION_PIN        Pin03
+#endif
 
 #define STEPPERS_ENABLE_PORT    PortC
 #define STEPPERS_ENABLE_PIN     Pin03
@@ -130,9 +170,8 @@
 #define SPINDLE1_HAS_ENABLE     0
 #define SPINDLE1_HAS_DIRECTION  0
 
-// Default functional assignment: flood coolant on the fan pin header pair.
-#define COOLANT_FLOOD_PORT      FAN_PIN_HEADER_PORT
-#define COOLANT_FLOOD_PIN       FAN_PIN_HEADER_PIN
+// PA0 is left available for auxiliary output / fan plugin use instead of being
+// hard-assigned as coolant flood on this board.
 
 // Optional direct-MCU control inputs on the display header.
 #define CONTROL_PORT            PortB
@@ -146,20 +185,63 @@
 #define CYCLE_START_PIN         Pin14
 #endif
 
+#if SDCARD_ENABLE
+#define SDCARD_SDIO             1
+#define SDIOC_UNIT              M4_SDIOC1
+#define SDIOC_CLOCK             PWC_FCG1_PERIPH_SDIOC1
+#define SDIOC_CK_PORT           PortC
+#define SDIOC_CK_PIN            Pin12
+#define SDIOC_CMD_PORT          PortD
+#define SDIOC_CMD_PIN           Pin02
+#define SDIOC_D0_PORT           PortC
+#define SDIOC_D0_PIN            Pin08
+#define SDIOC_D1_PORT           PortC
+#define SDIOC_D1_PIN            Pin09
+#define SDIOC_D2_PORT           PortC
+#define SDIOC_D2_PIN            Pin10
+#define SDIOC_D3_PORT           PortC
+#define SDIOC_D3_PIN            Pin11
+#define SD_DETECT_PORT          PortA
+#define SD_DETECT_PIN           Pin10
+#define SDIOC_DETECT_VIA_GPIO   1
+#endif
+
 /*
-  Expansion / future-use notes for this board:
+  Aquila V1.0.1 / V1.0.2 board notes:
 
-  Easily accessible external-use pins:
-  - BLTouch IN: PB0 (free for future use)
-  - Filament sensor / probe candidate: PA4 (10k pull-up on board)
-  - LCD connector UART / spare GPIO: PC0 / PC1
-  - FAN_PIN_HEADER: PA0 (two linked 1x2 headers)
-  - TB_BOARD: PA2
+  Known major ICs:
+  - HC32F460KCTA MCU
+  - 24C16 I2C EEPROM on PA11/PA12
+  - CH340G USB/UART bridge on PA9/PA15
+  - Four MS35775 stepper drivers (TMC2208-class clones)
 
-  Other notable board-connected signals:
-  - Status LED: PA3
-  - E0 stepper: PB4 step, PB3 dir
-  - SDIO: PC8-PC11, PC12, PD2, detect on PA10
-  - Thermistors: PC5 hotend, PC4 bed
-  - LCD header GPIOs: PB12, PB13, PB14, PB15
+  Motion hardware:
+  - X: PC2 step, PB9 dir
+  - Y: PB8 step, PB7 dir
+  - Z: PB6 step, PB5 dir
+  - E0: PB4 step, PB3 dir
+  - Shared stepper enable: PC3
+  - Driver strap resistors indicate fixed 1/16 microstepping
+
+  High-current outputs:
+  - PA0 switches both the part-cooling and motherboard fans in parallel
+  - PA1 switches the hotend heater MOSFET
+  - PA2 switches the heated-bed MOSFET
+
+  Sensor / IO headers:
+  - Filament runout: PA4
+  - Endstops: PA5/PA6/PA7 for X/Y/Z
+  - Thermistors: PC4 bed, PC5 hotend
+  - BLTouch: PB0 servo, PB1 probe input
+  - SDIO: PC8-PC11 data, PC12 clock, PD2 cmd, PA10 detect
+
+  Accessible expansion candidates:
+  - BLTouch servo pin PB0 if probing servo output is not needed
+  - LCD connector pins PC0/PC1 and PB12-PB15
+  - Fan output PA0 and heater output PA2 for non-thermally-managed repurposing
+
+  Misc:
+  - Status LED: PA3, active low
+  - Crystal: 8 MHz on PH0/PH1
+  - SWD: PA13/PA14
 */

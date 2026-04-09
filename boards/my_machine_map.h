@@ -11,6 +11,8 @@
 // Board-local pin map from the current HC32F460 control board.
 
 // Serial console on the CH340-connected pins.
+#define SERIAL_PORT             2
+#define SERIAL1_PORT            1
 #define SERIAL_PORT_USART       M4_USART2
 #define SERIAL_PORT_TX          PortA
 #define SERIAL_PORT_TX_PIN      Pin09
@@ -23,6 +25,20 @@
 #define SERIAL_PORT_EI          INT_USART2_EI
 #define SERIAL_PORT_TCI         INT_USART2_TCI
 #define SERIAL_PORT_CLOCKS      (PWC_FCG1_PERIPH_USART2)
+#define SERIAL_PORT_LABEL       "USART2"
+#define SERIAL_AUX_PORT_USART   M4_USART1
+#define SERIAL_AUX_PORT_TX      PortC
+#define SERIAL_AUX_PORT_TX_PIN  Pin00
+#define SERIAL_AUX_PORT_TX_FUNC Func_Usart1_Tx
+#define SERIAL_AUX_PORT_RX      PortC
+#define SERIAL_AUX_PORT_RX_PIN  Pin01
+#define SERIAL_AUX_PORT_RX_FUNC Func_Usart1_Rx
+#define SERIAL_AUX_PORT_RI      INT_USART1_RI
+#define SERIAL_AUX_PORT_TI      INT_USART1_TI
+#define SERIAL_AUX_PORT_EI      INT_USART1_EI
+#define SERIAL_AUX_PORT_TCI     INT_USART1_TCI
+#define SERIAL_AUX_PORT_CLOCKS  (PWC_FCG1_PERIPH_USART1)
+#define SERIAL_AUX_PORT_LABEL   "USART1"
 
 // EEPROM pins for external settings storage.
 #define EEPROM_SDA_PORT         PortA

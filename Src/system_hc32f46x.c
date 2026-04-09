@@ -85,6 +85,10 @@ void SystemInit(void)
     SCB->CPACR |= ((3UL << 20) | (3UL << 22)); /* set CP10 and CP11 Full Access */
 #endif
 
+    // The Aquila bootloader hands off to the app at high clock speed.
+    // Make flash latency safe before any further flash-resident execution.
+    M4_EFM->FRMC_f.FLWT = 4ul;
+
     SystemCoreClockUpdate();
 }
 
