@@ -56,13 +56,14 @@ Confirmed working on `BOARD_VOXELAB_AQUILA_V102`:
 
 | Feature | Notes / Options |
 |---|---|
-| Serial | USART2 (default); USART1 |
-| Settings persistence | External EEPROM; Internal reserved flash |
-| Motion | 3 or 4-axis; TimerA-backed step timing |
-| Spindles | Primary PWM; Secondary PWM (laser) |
-| Limits | EXINT-backed interrupts |
-| Probe | Optional; working; `PA4` |
-| SD card | Optional; working |
+| **Motion** | 3-axis or 4-axis step/dir; TimerA-backed hardware step generation |
+| **Serial Console** | `USART2` (via onboard CH340 USB); `USART1` (via display header) |
+| **Storage** | Settings persistence via external I²C EEPROM (24C16) or internal flash |
+| **Spindles** | Dual hardware PWM spindles: Primary (`PA1`) & Secondary/Laser (`PB1`) |
+| **Endstops** | EXINT-backed hardware interrupts for X, Y, and Z limits |
+| **Z-Probe** | EXINT-backed hardware interrupt (`PA4`) |
+| **I²C Bus** | Full I²C support (currently drives EEPROM, Keypad, Odometer) |
+| **SD Card Plugin** | Optional; verified and working |
 
 ---
 
@@ -76,6 +77,7 @@ The following features are supported but untested due to lack of hardware:
 | Control inputs (reset / feed-hold / cycle-start) | Maps to `PB14` / `PB13` / `PB12` on display header |
 | Fans plugin | Default maps to `PA0` (2 fan headers on Aquila board) |
 | Odometer plugin | Requires external EEPROM; incompatible with internal flash |
+| Keypad plugin | I²C keypad and display support via display header / I²C pins |
 
 ---
 
@@ -84,15 +86,10 @@ The following features are supported but untested due to lack of hardware:
 To build, just clone this repo with submodules and use PlatformIO
 
 ```sh
-git clone --recurse-submodules <repository-url>
-cd HC32F460
+git clone --recurse-submodules https://github.com/jake5253/grblHAL_HC32F460
+cd grblHAL_HC32F460
 # make any changes you want
-```
-
-Then build:
-
-
-```sh
+# then build it with
 pio run [-e your_board_environment]
 ```
 Available build flags and their defaults are documented in the [Build Flags Reference](#build-flags-reference). See also: [platformio.ini](platformio.ini).

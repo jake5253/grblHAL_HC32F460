@@ -64,7 +64,7 @@
 #define STEPPERS_ENABLE_PORT    PortC
 #define STEPPERS_ENABLE_PIN     Pin03
 
-// Limits and probe. Z limit and probe currently share PA7.
+// Limits and probe.
 #define X_LIMIT_PORT            PortA
 #define X_LIMIT_PIN             Pin05
 #define Y_LIMIT_PORT            PortA
@@ -73,7 +73,7 @@
 #define Z_LIMIT_PIN             Pin07
 
 #define PROBE_PORT              PortA
-#define PROBE_PIN               Pin07
+#define PROBE_PIN               Pin04
 
 // Laser PWM on PB1 via TimerA1 channel 7.
 #define SPINDLE_PWM_PORT        PortB
