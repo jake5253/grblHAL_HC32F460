@@ -9,6 +9,9 @@
 #include <stdlib.h>
 
 #include "main.h"
+#ifndef OVERRIDE_MY_MACHINE
+#include "my_machine.h"
+#endif
 #include "flash.h"
 #include "sdcard_port.h"
 #include "serial.h"
@@ -156,6 +159,19 @@ static void emit_pin (pin_info_ptr callback, void *data, uint8_t id, pin_functio
     callback(&pin, data);
 }
 
+typedef struct {
+    pin_info_ptr callback;
+    void *data;
+} enum_cb_data_t;
+
+static bool ioport_enum_cb (xbar_t *portinfo, uint8_t port_num, void *data)
+{
+    (void)port_num;
+    enum_cb_data_t *cb_data = (enum_cb_data_t *)data;
+    cb_data->callback(portinfo, cb_data->data);
+    return false;
+}
+
 #if SDCARD_ENABLE && defined(SD_DETECT_PIN)
 static float sd_detect_pin_value (xbar_t *pin)
 {
@@ -208,14 +224,14 @@ static void enumeratePins (bool low_level, pin_info_ptr callback, void *data)
 
     emit_pin(callback, data, id++, Output_StepperEnable, PinGroup_StepperEnable, STEPPERS_ENABLE_PORT, STEPPERS_ENABLE_PIN, "Stepper enable");
 
-    emit_pin(callback, data, id++, Output_SpindlePWM, PinGroup_SpindlePWM, SPINDLE0_PWM_PORT, SPINDLE0_PWM_PIN, "Spindle 1 PWM / TB_HEAD");
+    emit_pin(callback, data, id++, Output_SpindlePWM, PinGroup_SpindlePWM, SPINDLE0_PWM_PORT, SPINDLE0_PWM_PIN, "Spindle 1 PWM");
 #if SPINDLE1_HAS_ENABLE
     emit_pin(callback, data, id++, Output_Spindle1On, PinGroup_SpindleControl, SPINDLE1_ENABLE_PORT, SPINDLE1_ENABLE_PIN, "Spindle 2 enable");
 #endif
     emit_pin(callback, data, id++, Output_Spindle1PWM, PinGroup_SpindlePWM, SPINDLE1_PWM_PORT, SPINDLE1_PWM_PIN, "Spindle 2 PWM");
 
 #ifdef COOLANT_FLOOD_PIN
-    emit_pin(callback, data, id++, Output_CoolantFlood, PinGroup_Coolant, COOLANT_FLOOD_PORT, COOLANT_FLOOD_PIN, "Flood / FAN_PIN_HEADER");
+    emit_pin(callback, data, id++, Output_CoolantFlood, PinGroup_Coolant, COOLANT_FLOOD_PORT, COOLANT_FLOOD_PIN, "Flood");
 #endif
 #ifdef COOLANT_MIST_PIN
     emit_pin(callback, data, id++, Output_CoolantMist, PinGroup_Coolant, COOLANT_MIST_PORT, COOLANT_MIST_PIN, "Mist");
@@ -247,6 +263,12 @@ static void enumeratePins (bool low_level, pin_info_ptr callback, void *data)
 
     callback(&sd_detect, data);
 #endif
+
+    enum_cb_data_t cb_data = { callback, data };
+    ioports_enumerate(Port_Digital, Port_Input, (pin_cap_t){0}, ioport_enum_cb, &cb_data);
+    ioports_enumerate(Port_Digital, Port_Output, (pin_cap_t){0}, ioport_enum_cb, &cb_data);
+    ioports_enumerate(Port_Analog, Port_Input, (pin_cap_t){0}, ioport_enum_cb, &cb_data);
+    ioports_enumerate(Port_Analog, Port_Output, (pin_cap_t){0}, ioport_enum_cb, &cb_data);
 }
 
 static void limit_irq_handler (void)
@@ -293,11 +315,11 @@ static void set_step_outputs (axes_signals_t step_outbits)
 {
     step_outbits.mask ^= settings.steppers.step_invert.mask;
 
-    hc32_gpio_write(X_STEP_PORT, X_STEP_PIN, step_outbits.x);
-    hc32_gpio_write(Y_STEP_PORT, Y_STEP_PIN, step_outbits.y);
-    hc32_gpio_write(Z_STEP_PORT, Z_STEP_PIN, step_outbits.z);
+    DIGITAL_OUT(X_STEP_PORT, X_STEP_PIN, step_outbits.x);
+    DIGITAL_OUT(Y_STEP_PORT, Y_STEP_PIN, step_outbits.y);
+    DIGITAL_OUT(Z_STEP_PORT, Z_STEP_PIN, step_outbits.z);
 #ifdef A_AXIS
-    hc32_gpio_write(A_STEP_PORT, A_STEP_PIN, step_outbits.a);
+    DIGITAL_OUT(A_STEP_PORT, A_STEP_PIN, step_outbits.a);
 #endif
 }
 
@@ -305,11 +327,11 @@ static void set_dir_outputs (axes_signals_t dir_outbits)
 {
     dir_outbits.mask ^= settings.steppers.dir_invert.mask;
 
-    hc32_gpio_write(X_DIRECTION_PORT, X_DIRECTION_PIN, dir_outbits.x);
-    hc32_gpio_write(Y_DIRECTION_PORT, Y_DIRECTION_PIN, dir_outbits.y);
-    hc32_gpio_write(Z_DIRECTION_PORT, Z_DIRECTION_PIN, dir_outbits.z);
+    DIGITAL_OUT(X_DIRECTION_PORT, X_DIRECTION_PIN, dir_outbits.x);
+    DIGITAL_OUT(Y_DIRECTION_PORT, Y_DIRECTION_PIN, dir_outbits.y);
+    DIGITAL_OUT(Z_DIRECTION_PORT, Z_DIRECTION_PIN, dir_outbits.z);
 #ifdef A_AXIS
-    hc32_gpio_write(A_DIRECTION_PORT, A_DIRECTION_PIN, dir_outbits.a);
+    DIGITAL_OUT(A_DIRECTION_PORT, A_DIRECTION_PIN, dir_outbits.a);
 #endif
 }
 
@@ -318,7 +340,7 @@ static void stepperEnable (axes_signals_t enable, bool hold)
     (void)hold;
 
     enable.mask ^= settings.steppers.enable_invert.mask;
-    hc32_gpio_write(STEPPERS_ENABLE_PORT, STEPPERS_ENABLE_PIN, enable.x);
+    DIGITAL_OUT(STEPPERS_ENABLE_PORT, STEPPERS_ENABLE_PIN, enable.x);
 }
 
 static void stepperWakeUp (void)
@@ -403,9 +425,9 @@ static limit_signals_t limitsGetState (void)
 {
     limit_signals_t signals = {0};
 
-    signals.min.x = hc32_gpio_read(X_LIMIT_PORT, X_LIMIT_PIN);
-    signals.min.y = hc32_gpio_read(Y_LIMIT_PORT, Y_LIMIT_PIN);
-    signals.min.z = hc32_gpio_read(Z_LIMIT_PORT, Z_LIMIT_PIN);
+    signals.min.x = DIGITAL_IN(X_LIMIT_PORT, X_LIMIT_PIN);
+    signals.min.y = DIGITAL_IN(Y_LIMIT_PORT, Y_LIMIT_PIN);
+    signals.min.z = DIGITAL_IN(Z_LIMIT_PORT, Z_LIMIT_PIN);
     signals.min.mask ^= settings.limits.invert.mask;
 
     return signals;
@@ -425,16 +447,16 @@ static control_signals_t systemGetState (void)
     control_signals_t signals = { settings.control_invert.mask };
 
 #if defined(RESET_PIN) && !ESTOP_ENABLE
-    signals.reset = hc32_gpio_read(RESET_PORT, RESET_PIN);
+    signals.reset = DIGITAL_IN(RESET_PORT, RESET_PIN);
 #endif
 #if defined(RESET_PIN) && ESTOP_ENABLE
-    signals.e_stop = hc32_gpio_read(RESET_PORT, RESET_PIN);
+    signals.e_stop = DIGITAL_IN(RESET_PORT, RESET_PIN);
 #endif
 #ifdef FEED_HOLD_PIN
-    signals.feed_hold = hc32_gpio_read(FEED_HOLD_PORT, FEED_HOLD_PIN);
+    signals.feed_hold = DIGITAL_IN(FEED_HOLD_PORT, FEED_HOLD_PIN);
 #endif
 #ifdef CYCLE_START_PIN
-    signals.cycle_start = hc32_gpio_read(CYCLE_START_PORT, CYCLE_START_PIN);
+    signals.cycle_start = DIGITAL_IN(CYCLE_START_PORT, CYCLE_START_PIN);
 #endif
 
     if(settings.control_invert.mask)
@@ -461,7 +483,7 @@ static probe_state_t probeGetState (void)
         .probe_id = Probe_Default
     };
 
-    bool triggered = hc32_gpio_read(PROBE_PORT, PROBE_PIN);
+    bool triggered = DIGITAL_IN(PROBE_PORT, PROBE_PIN);
     state.triggered = triggered ^ probe_invert_mask;
 
     return state;
@@ -473,7 +495,7 @@ static void spindle_off (spindle_ptrs_t *spindle)
     hc32_spindle_t *ctx = get_spindle_data(spindle);
 
     if(ctx->has_enable)
-        hc32_gpio_write(ctx->enable_port, ctx->enable_pin, ctx->settings->invert.on);
+        DIGITAL_OUT(ctx->enable_port, ctx->enable_pin, ctx->settings->invert.on);
 
     if(ctx->pwm.flags.always_on)
         spindle_set_pwm_value(ctx, ctx->pwm.off_value);
@@ -486,7 +508,7 @@ static void spindle_on (spindle_ptrs_t *spindle)
     hc32_spindle_t *ctx = get_spindle_data(spindle);
 
     if(ctx->has_enable)
-        hc32_gpio_write(ctx->enable_port, ctx->enable_pin, !ctx->settings->invert.on);
+        DIGITAL_OUT(ctx->enable_port, ctx->enable_pin, !ctx->settings->invert.on);
 }
 
 static void spindle_dir (spindle_ptrs_t *spindle, bool ccw)
@@ -494,7 +516,7 @@ static void spindle_dir (spindle_ptrs_t *spindle, bool ccw)
     hc32_spindle_t *ctx = get_spindle_data(spindle);
 
     if(ctx->has_direction)
-        hc32_gpio_write(ctx->direction_port, ctx->direction_pin, ccw ^ ctx->settings->invert.ccw);
+        DIGITAL_OUT(ctx->direction_port, ctx->direction_pin, ccw ^ ctx->settings->invert.ccw);
     else
         (void)ccw;
 }
@@ -534,11 +556,11 @@ static spindle_state_t spindleGetState (spindle_ptrs_t *spindle)
 
     spindle_state_t state = {0};
     state.on = ctx->has_enable
-        ? hc32_gpio_read(ctx->enable_port, ctx->enable_pin)
+        ? DIGITAL_IN(ctx->enable_port, ctx->enable_pin)
         : ctx->output_enabled;
 
     if(ctx->has_direction)
-        state.ccw = hc32_gpio_read(ctx->direction_port, ctx->direction_pin);
+        state.ccw = DIGITAL_IN(ctx->direction_port, ctx->direction_pin);
 
     state.value ^= ctx->settings->invert.mask;
 
@@ -1284,6 +1306,11 @@ bool driver_init (void)
     register_spindles();
 
 #include "grbl/plugins_init.h"
+
+#if RELAYS_ENABLE
+extern void relays_init(void);
+    relays_init();
+#endif
 
 #if MPG_ENABLE == 2
     if(!hal.driver_cap.mpg_mode)

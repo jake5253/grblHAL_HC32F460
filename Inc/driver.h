@@ -9,9 +9,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-
+#include "driver_macros.h"
 #ifndef OVERRIDE_MY_MACHINE
 #include "my_machine.h"
+#endif
+
+#if defined(BOARD_VOXELAB_AQUILA_V102)
+#include "boards/voxelab_aquila_v1_0_2_map.h"
+#else
+#include "boards/generic_map.h"
 #endif
 
 #include "hc32_ddl.h"
@@ -31,13 +37,34 @@
 
 #include "grbl/driver_opts.h"
 
-#if defined(BOARD_VOXELAB_AQUILA_V102)
-#include "boards/voxelab_aquila_v1_0_2_map.h"
-#elif defined(BOARD_MY_MACHINE)
-#include "boards/my_machine_map.h"
-#else
-#include "boards/generic_map.h"
+#if MPG_ENABLE == 1
+#error "MPG_ENABLE=1 is not supported on HC32F460 yet. Use MPG_ENABLE=2 for UART MPG mode."
 #endif
+
+#if KEYPAD_ENABLE == 1
+#error "KEYPAD_ENABLE=1 is not supported on HC32F460 yet. I2C keypad support is not implemented."
+#endif
+
+#if MPG_ENABLE > 2
+#error "MPG_ENABLE must be 0 or 2 on HC32F460."
+#endif
+
+#if KEYPAD_ENABLE > 2
+#error "KEYPAD_ENABLE must be 0 or 2 on HC32F460."
+#endif
+
+#if MPG_ENABLE == 2 && KEYPAD_ENABLE == 2 && MPG_STREAM != KEYPAD_STREAM
+#error "HC32F460 has a single auxiliary UART stream. MPG_STREAM and KEYPAD_STREAM must match."
+#endif
+
+// N_AXIS validation
+#if N_AXIS < 2 || N_AXIS > 4
+#error "N_AXIS must be between 2 and 4 for this driver."
+#endif
+
+// Pin conflict checks
+// Note: HC32F460 pins are defined as enums, so preprocessor cannot compare them accurately.
+// Conflict checks should be done via board map review or runtime validation.
 
 #include "grbl/driver_opts2.h"
 
@@ -48,7 +75,7 @@
 #define LIMIT_Z_IRQ             Int014_IRQn
 #define CONTROL_IRQ             Int015_IRQn
 
-#define STEPPER_TIMER           M4_TMRA6
+#define STEPPER_TIMER           timer(6)
 #define STEPPER_TIMER_CLOCK     PWC_FCG2_PERIPH_TIMA6
 #define STEPPER_TIMER_INT       INT_TMRA6_OVF
 #define STEPPER_TIMER_CMP_INT   INT_TMRA6_CMP
@@ -84,6 +111,8 @@
 #define HC32_FLASH_APP_START    0x0000C000u
 #define HC32_FLASH_NVS_BASE     0x0007C000u
 #define HC32_FLASH_NVS_SIZE     0x00002000u
+
+
 
 static inline uint32_t pinmask_to_pinno (uint16_t pinmask)
 {
