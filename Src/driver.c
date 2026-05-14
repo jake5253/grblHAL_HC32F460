@@ -1305,12 +1305,12 @@ bool driver_init (void)
 
     register_spindles();
 
-#include "grbl/plugins_init.h"
-
 #if RELAYS_ENABLE
-extern void relays_init(void);
+    extern void relays_init(void);
     relays_init();
 #endif
+
+#include "grbl/plugins_init.h"
 
 #if MPG_ENABLE == 2
     if(!hal.driver_cap.mpg_mode)

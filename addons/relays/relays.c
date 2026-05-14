@@ -188,11 +188,17 @@ static void onProgramCompleted (program_flow_t program_flow, bool check_mode)
 
 bool relay_get_state (uint8_t relay)
 {
+    if (relay >= RELAYS_ENABLE)
+        return false;
+
     return relays.port[relay] != IOPORT_UNASSIGNED && !!(relays_on & (1 << relay));
 }
 
 void relay_set_state (uint8_t relay, bool on)
 {
+    if (relay >= RELAYS_ENABLE)
+        return;
+
     if(relays.port[relay] != IOPORT_UNASSIGNED) {
 
         if(on)
@@ -224,7 +230,7 @@ static void relays_setup (void)
 
 static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
 {
-    return d_out.n_ports >= ((setting->id - Setting_UserDefined_0) / 3);
+    return d_out.n_ports > ((setting->id - Setting_UserDefined_0) / 3);
 }
 
 static status_code_t set_float (setting_id_t setting, float value)
