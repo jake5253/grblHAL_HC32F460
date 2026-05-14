@@ -205,7 +205,6 @@ All flags are set via `build_flags` in `platformio.ini`.
 | `FANS_ENABLE` | `1` | — | Fans plugin; `PA0` is the natural Aquila mapping [untested] |
 | `RELAYS_ENABLE` | `1` to `3` | — | Relays addon; requires `EEPROM_ENABLE=1`. Configurable via `$450` - `$458` block |
 | `ODOMETER_ENABLE` | `1` | — | Odometer plugin; requires `EEPROM_ENABLE=1` |
-| `ODOMETER_ENABLE` | `1` | — | Odometer plugin; requires `EEPROM_ENABLE=1` |
 
 ### Active Pin Assignments
 
