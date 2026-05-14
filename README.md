@@ -203,6 +203,8 @@ All flags are set via `build_flags` in `platformio.ini`.
 | `ESTOP_ENABLE` | `1` | — | Enable emergency-stop input |
 | `SDCARD_ENABLE` | `1` | — | Enable SD card support (not required for bootloader flashing) |
 | `FANS_ENABLE` | `1` | — | Fans plugin; `PA0` is the natural Aquila mapping [untested] |
+| `RELAYS_ENABLE` | `1` to `3` | — | Relays addon; requires `EEPROM_ENABLE=1`. Configurable via `$450` - `$458` block |
+| `ODOMETER_ENABLE` | `1` | — | Odometer plugin; requires `EEPROM_ENABLE=1` |
 | `ODOMETER_ENABLE` | `1` | — | Odometer plugin; requires `EEPROM_ENABLE=1` |
 
 ### Active Pin Assignments
@@ -275,9 +277,9 @@ Provided by a `CH340G` USB-to-serial converter bridging USB to UART on the HC32F
 
 | Board Label | MCU Pin | Notes |
 |---|---|---|
-| **Head** | `PA1` | Primary spindle PWM output; aliased as `TB_HEAD` |
-| **Board** | `PA2` | Available output; aliased as `TB_BOARD` |
-| *(unmarked)* | `PA0` | Two 2.54 mm 1×2 headers next to the **CPU** LED; natural fan 0 mapping; aliased as `FAN_PIN_HEADER` |
+| **Head** | `PA1` | Primary spindle PWM output |
+| **Board** | `PA2` | Available high-current output |
+| *(unmarked)* | `PA0` | Two 2.54 mm 1×2 headers next to the **CPU** LED; natural fan 0 mapping |
 | **TB** | `PC4` | Thermistor input (circuitry intended for thermistors only) |
 | **TH** | `PC5` | Thermistor input (circuitry intended for thermistors only) |
 

@@ -10,13 +10,79 @@
 
 #define BOARD_NAME              "Voxelab Aquila V1.0.2 (HC32F460)"
 
+#ifndef BUILD_INFO_BASE
+#define BUILD_INFO_BASE         "FFP0173_Aquila_Main_Board_V1.0.2"
+#endif
+
+// Board-default machine profile for the stock Aquila kinematics.
+// These values become active after reflashing and resetting settings with $RST=*.
+#define DEFAULT_X_STEPS_PER_MM  800.0f
+#define DEFAULT_Y_STEPS_PER_MM  800.0f
+#define DEFAULT_Z_STEPS_PER_MM  800.0f
+
+#define DEFAULT_X_MAX_RATE      1200.0f
+#define DEFAULT_Y_MAX_RATE      1200.0f
+#define DEFAULT_Z_MAX_RATE      800.0f
+
+#define DEFAULT_X_ACCELERATION  300.0f
+#define DEFAULT_Y_ACCELERATION  300.0f
+#define DEFAULT_Z_ACCELERATION  100.0f
+
+#define DEFAULT_X_MAX_TRAVEL    300.0f
+#define DEFAULT_Y_MAX_TRAVEL    200.0f
+#define DEFAULT_Z_MAX_TRAVEL    45.0f
+
+#define DEFAULT_DIR_SIGNALS_INVERT_MASK 2
+#define DEFAULT_ENABLE_SIGNALS_INVERT_MASK 7
+#define DEFAULT_HARD_LIMIT_ENABLE 1
+#define DEFAULT_HOMING_ENABLE 1
+#define DEFAULT_HOMING_DIR_MASK 3
+
+#define DEFAULT_SPINDLE_PWM_FREQ 40000
+
+// Optional direct-MCU control inputs on the display header.
+// Uncomment or provide via build flags when external conditioning is present.
+//#define CONTROL_ENABLE          (CONTROL_HALT|CONTROL_FEED_HOLD|CONTROL_CYCLE_START)
+
+// Common useful build-time overrides for this board:
+// -D USE_USART=1
+//     Route the main serial console to USART1 on PC0/PC1 instead of USART2 on PA9/PA15.
+// -D USE_USART=2
+//     Use the default console on USART2 on PA9/PA15.
+// -D MPG_ENABLE=2
+//     Enable UART MPG mode on the non-primary USART using real-time command switchover.
+// -D KEYPAD_ENABLE=2
+//     Enable experimental UART keypad mode on the non-primary USART.
+//     This is integrated and build-tested, but not yet validated on HC32 hardware.
+// -D PROBE_ENABLE=0
+//     Disable the dedicated probe input and build without probe support.
+// -D CONTROL_ENABLE=(CONTROL_HALT|CONTROL_FEED_HOLD|CONTROL_CYCLE_START)
+//     Enable halt/feed-hold/cycle-start on PB12/PB13/PB14.
+// -D ESTOP_ENABLE=1
+//     Make the halt input behave as a physical e-stop instead of a reset input.
+// -D EEPROM_ENABLE=0
+//     Use internal flash-backed NVS instead of the external EEPROM on PA11/PA12.
+// -D N_SPINDLE=1
+//     Build without the secondary spindle / laser registration.
+// -D N_SPINDLE=2 -D SPINDLE1_ENABLE=SPINDLE_PWM1_NODIR
+//     Enable the secondary PWM spindle / laser on PB1.
+// -D SPINDLE_SELECT_ENABLE=0
+//     Disable the local runtime spindle-selection addon even when multiple spindles are built.
+// -D FANS_ENABLE=1
+//     Enable the upstream fans plugin submodule. Fan mapping is handled through aux port settings.
+// -D ODOMETER_ENABLE=1
+//     Enable the upstream odometer plugin submodule. Use with EEPROM_ENABLE=1; flash-backed NVS is not suitable.
+// -D N_AXIS=4
+//     Repurpose the Aquila E-stepper socket as an optional A axis on PB4/PB3.
+//     This axis has no dedicated limit/home input and should be tuned/reset separately after flashing.
+
 // Main serial console defaults to the onboard CH340 / micro USB path on USART2.
 // Set USE_USART=1 to use the display header PC0/PC1 pins instead.
 
 #if USE_USART == 1
 #define SERIAL_PORT             1
 #define SERIAL1_PORT            2
-#define SERIAL_PORT_USART       M4_USART1
+#define SERIAL_PORT_USART       usart(1)
 #define SERIAL_PORT_TX          PortC
 #define SERIAL_PORT_TX_PIN      Pin00
 #define SERIAL_PORT_TX_FUNC     Func_Usart1_Tx
@@ -29,7 +95,7 @@
 #define SERIAL_PORT_TCI         INT_USART1_TCI
 #define SERIAL_PORT_CLOCKS      (PWC_FCG1_PERIPH_USART1)
 #define SERIAL_PORT_LABEL       "USART1"
-#define SERIAL_AUX_PORT_USART   M4_USART2
+#define SERIAL_AUX_PORT_USART   usart(2)
 #define SERIAL_AUX_PORT_TX      PortA
 #define SERIAL_AUX_PORT_TX_PIN  Pin09
 #define SERIAL_AUX_PORT_TX_FUNC Func_Usart2_Tx
@@ -45,7 +111,7 @@
 #elif USE_USART == 2
 #define SERIAL_PORT             2
 #define SERIAL1_PORT            1
-#define SERIAL_PORT_USART       M4_USART2
+#define SERIAL_PORT_USART       usart(2)
 #define SERIAL_PORT_TX          PortA
 #define SERIAL_PORT_TX_PIN      Pin09
 #define SERIAL_PORT_TX_FUNC     Func_Usart2_Tx
@@ -58,7 +124,7 @@
 #define SERIAL_PORT_TCI         INT_USART2_TCI
 #define SERIAL_PORT_CLOCKS      (PWC_FCG1_PERIPH_USART2)
 #define SERIAL_PORT_LABEL       "USART2"
-#define SERIAL_AUX_PORT_USART   M4_USART1
+#define SERIAL_AUX_PORT_USART   usart(1)
 #define SERIAL_AUX_PORT_TX      PortC
 #define SERIAL_AUX_PORT_TX_PIN  Pin00
 #define SERIAL_AUX_PORT_TX_FUNC Func_Usart1_Tx
@@ -119,36 +185,13 @@
 #define PROBE_PORT              PortA
 #define PROBE_PIN               Pin04
 
-// Board-silkscreened high-current outputs.
-// FAN_PIN_HEADER is the pair of 1x2 pin headers above HEAD, both switched together by PA0.
-#define FAN_PIN_HEADER_PORT     PortA
-#define FAN_PIN_HEADER_PIN      Pin00
-#define FAN_PIN_HEADER_FUNC     Func_Tima0
-#define FAN_PIN_HEADER_TIMER    M4_TMRA2
-#define FAN_PIN_HEADER_CLOCK    PWC_FCG2_PERIPH_TIMA2
-#define FAN_PIN_HEADER_CHANNEL  TimeraCh1
-
-#define TB_HEAD_PORT            PortA
-#define TB_HEAD_PIN             Pin01
-#define TB_HEAD_FUNC            Func_Tima0
-#define TB_HEAD_TIMER           M4_TMRA2
-#define TB_HEAD_CLOCK           PWC_FCG2_PERIPH_TIMA2
-#define TB_HEAD_CHANNEL         TimeraCh2
-
-#define TB_BOARD_PORT           PortA
-#define TB_BOARD_PIN            Pin02
-#define TB_BOARD_FUNC           Func_Tima0
-#define TB_BOARD_TIMER          M4_TMRA2
-#define TB_BOARD_CLOCK          PWC_FCG2_PERIPH_TIMA2
-#define TB_BOARD_CHANNEL        TimeraCh3
-
 // Default functional assignment: primary spindle PWM on the HEAD terminal block.
-#define SPINDLE0_PWM_PORT       TB_HEAD_PORT
-#define SPINDLE0_PWM_PIN        TB_HEAD_PIN
-#define SPINDLE0_PWM_FUNC       TB_HEAD_FUNC
-#define SPINDLE0_PWM_TIMER      TB_HEAD_TIMER
-#define SPINDLE0_PWM_CLOCK      TB_HEAD_CLOCK
-#define SPINDLE0_PWM_CHANNEL    TB_HEAD_CHANNEL
+#define SPINDLE0_PWM_PORT       PortA
+#define SPINDLE0_PWM_PIN        Pin01
+#define SPINDLE0_PWM_FUNC       Func_Tima0
+#define SPINDLE0_PWM_TIMER      timer(2)
+#define SPINDLE0_PWM_CLOCK      PWC_FCG2_PERIPH_TIMA2
+#define SPINDLE0_PWM_CHANNEL    TimeraCh2
 #define SPINDLE0_HAS_ENABLE     0
 #define SPINDLE0_HAS_DIRECTION  0
 
@@ -164,7 +207,7 @@
 #define SPINDLE1_PWM_PORT       PortB
 #define SPINDLE1_PWM_PIN        Pin01
 #define SPINDLE1_PWM_FUNC       Func_Tima0
-#define SPINDLE1_PWM_TIMER      M4_TMRA1
+#define SPINDLE1_PWM_TIMER      timer(1)
 #define SPINDLE1_PWM_CLOCK      PWC_FCG2_PERIPH_TIMA1
 #define SPINDLE1_PWM_CHANNEL    TimeraCh7
 #define SPINDLE1_HAS_ENABLE     0
